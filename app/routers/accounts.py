@@ -11,6 +11,43 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["accounts"])
 
 
+@router.get("/items", response_model=List[ItemResponse])
+async def list_items(request: Request):
+    """List all linked Plaid items with their accounts."""
+    db = request.app.state.db
+    items_cursor = await db.execute(
+        "SELECT item_id, institution_id, institution_name, status, products, created_at, "
+        "initial_update_complete, historical_update_complete "
+        "FROM plaid_items ORDER BY created_at DESC"
+    )
+    items = await items_cursor.fetchall()
+    result = []
+    for item in items:
+        accounts_cursor = await db.execute(
+            "SELECT plaid_account_id, item_id, name, official_name, type, subtype, mask, "
+            "current_balance, available_balance, currency_code FROM accounts WHERE item_id = ?",
+            (item[0],),
+        )
+        accounts = await accounts_cursor.fetchall()
+        result.append(ItemResponse(
+            item_id=item[0], institution_id=item[1], institution_name=item[2],
+            status=item[3] or "good",
+            products=item[4].split(",") if item[4] else [],
+            created_at=item[5] or "",
+            initial_update_complete=bool(item[6]),
+            historical_update_complete=bool(item[7]),
+            accounts=[
+                AccountResponse(
+                    plaid_account_id=a[0], item_id=a[1], name=a[2], official_name=a[3],
+                    type=a[4], subtype=a[5], mask=a[6], current_balance=a[7],
+                    available_balance=a[8], currency_code=a[9],
+                )
+                for a in accounts
+            ],
+        ))
+    return result
+
+
 @router.get("/accounts", response_model=List[AccountResponse])
 async def list_accounts(request: Request):
     """List all linked accounts with balances."""

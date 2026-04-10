@@ -41,6 +41,7 @@ class FakePlaidClient:
         self.transactions_sync = MagicMock()
         self.investments_holdings_get = MagicMock()
         self.investments_transactions_get = MagicMock()
+        self.link_token_create = MagicMock()
         self.item_remove = MagicMock()
 
 

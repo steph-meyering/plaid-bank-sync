@@ -141,6 +141,14 @@ CREATE INDEX IF NOT EXISTS idx_investment_transactions_account ON investment_tra
 CREATE INDEX IF NOT EXISTS idx_investment_transactions_date ON investment_transactions(date);
 CREATE INDEX IF NOT EXISTS idx_accounts_item ON accounts(item_id);
 """,
+    2: """
+ALTER TABLE plaid_items ADD COLUMN status TEXT NOT NULL DEFAULT 'good';
+ALTER TABLE plaid_items ADD COLUMN products TEXT NOT NULL DEFAULT 'transactions,investments';
+""",
+    3: """
+ALTER TABLE plaid_items ADD COLUMN initial_update_complete BOOLEAN NOT NULL DEFAULT 0;
+ALTER TABLE plaid_items ADD COLUMN historical_update_complete BOOLEAN NOT NULL DEFAULT 0;
+""",
 }
 
 

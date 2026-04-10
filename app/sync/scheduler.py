@@ -13,7 +13,7 @@ async def run_full_sync(app):
     db = app.state.db
     client = app.state.plaid_client
 
-    cursor = await db.execute("SELECT item_id, access_token FROM plaid_items")
+    cursor = await db.execute("SELECT item_id, access_token, products FROM plaid_items")
     items = await cursor.fetchall()
 
     if not items:
@@ -22,46 +22,49 @@ async def run_full_sync(app):
 
     for item in items:
         item_id, access_token = item[0], item[1]
+        item_products = [p.strip() for p in (item[2] or "").split(",") if p.strip()]
 
         # Transaction sync
-        try:
-            result = await sync_transactions(client, db, item_id, access_token)
-            await db.execute(
-                "INSERT INTO sync_log (item_id, sync_type, status, added_count, modified_count, removed_count, completed_at) "
-                "VALUES (?, 'transactions', 'success', ?, ?, ?, datetime('now'))",
-                (item_id, result["added"], result["modified"], result["removed"]),
-            )
-            await db.commit()
-            logger.info(f"Transaction sync for {item_id}: +{result['added']} ~{result['modified']} -{result['removed']}")
-        except Exception as e:
-            logger.error(f"Transaction sync failed for {item_id}: {e}")
-            await db.execute(
-                "INSERT INTO sync_log (item_id, sync_type, status, error_message, completed_at) "
-                "VALUES (?, 'transactions', 'error', ?, datetime('now'))",
-                (item_id, str(e)),
-            )
-            await db.commit()
+        if "transactions" in item_products:
+            try:
+                result = await sync_transactions(client, db, item_id, access_token)
+                await db.execute(
+                    "INSERT INTO sync_log (item_id, sync_type, status, added_count, modified_count, removed_count, completed_at) "
+                    "VALUES (?, 'transactions', 'success', ?, ?, ?, datetime('now'))",
+                    (item_id, result["added"], result["modified"], result["removed"]),
+                )
+                await db.commit()
+                logger.info(f"Transaction sync for {item_id}: +{result['added']} ~{result['modified']} -{result['removed']}")
+            except Exception as e:
+                logger.error(f"Transaction sync failed for {item_id}: {e}")
+                await db.execute(
+                    "INSERT INTO sync_log (item_id, sync_type, status, error_message, completed_at) "
+                    "VALUES (?, 'transactions', 'error', ?, datetime('now'))",
+                    (item_id, str(e)),
+                )
+                await db.commit()
 
         # Investment sync
-        try:
-            holdings_result = await sync_holdings(client, db, item_id, access_token)
-            txn_result = await sync_investment_transactions(client, db, item_id, access_token)
-            total = holdings_result["holdings_synced"] + txn_result["transactions_synced"]
-            await db.execute(
-                "INSERT INTO sync_log (item_id, sync_type, status, added_count, completed_at) "
-                "VALUES (?, 'investments', 'success', ?, datetime('now'))",
-                (item_id, total),
-            )
-            await db.commit()
-            logger.info(f"Investment sync for {item_id}: {holdings_result['holdings_synced']} holdings, {txn_result['transactions_synced']} transactions")
-        except Exception as e:
-            logger.error(f"Investment sync failed for {item_id}: {e}")
-            await db.execute(
-                "INSERT INTO sync_log (item_id, sync_type, status, error_message, completed_at) "
-                "VALUES (?, 'investments', 'error', ?, datetime('now'))",
-                (item_id, str(e)),
-            )
-            await db.commit()
+        if "investments" in item_products:
+            try:
+                holdings_result = await sync_holdings(client, db, item_id, access_token)
+                txn_result = await sync_investment_transactions(client, db, item_id, access_token)
+                total = holdings_result["holdings_synced"] + txn_result["transactions_synced"]
+                await db.execute(
+                    "INSERT INTO sync_log (item_id, sync_type, status, added_count, completed_at) "
+                    "VALUES (?, 'investments', 'success', ?, datetime('now'))",
+                    (item_id, total),
+                )
+                await db.commit()
+                logger.info(f"Investment sync for {item_id}: {holdings_result['holdings_synced']} holdings, {txn_result['transactions_synced']} transactions")
+            except Exception as e:
+                logger.error(f"Investment sync failed for {item_id}: {e}")
+                await db.execute(
+                    "INSERT INTO sync_log (item_id, sync_type, status, error_message, completed_at) "
+                    "VALUES (?, 'investments', 'error', ?, datetime('now'))",
+                    (item_id, str(e)),
+                )
+                await db.commit()
 
 
 def create_scheduler(app, interval_hours: int) -> AsyncIOScheduler:

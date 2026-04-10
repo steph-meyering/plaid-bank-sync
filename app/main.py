@@ -9,7 +9,9 @@ from .database import init_db
 from .plaid_client import create_plaid_client
 from .sync.scheduler import create_scheduler
 from starlette.requests import Request
-from .routers import accounts, transactions, investments
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from .routers import accounts, transactions, investments, link
 from .models import SyncResult, SyncLogResponse
 
 logger = logging.getLogger(__name__)
@@ -49,10 +51,19 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Plaid Bank Sync", version="1.0.0", lifespan=lifespan)
 
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Register routers
 app.include_router(accounts.router)
 app.include_router(transactions.router)
 app.include_router(investments.router)
+app.include_router(link.router)
 
 
 @app.post("/api/sync/all")
@@ -84,3 +95,10 @@ async def sync_status(request: Request):
         )
         for r in rows
     ]
+
+
+# Static files (must be last — catch-all for frontend)
+import os
+_static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+if os.path.isdir(_static_dir):
+    app.mount("/", StaticFiles(directory=_static_dir, html=True), name="static")

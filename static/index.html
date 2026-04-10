@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plaid Bank Sync</title>
+  <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #1a1a1a; padding: 24px; max-width: 900px; margin: 0 auto; }
+    h1 { font-size: 24px; margin-bottom: 24px; }
+    h2 { font-size: 18px; margin-bottom: 16px; }
+    .controls { display: flex; gap: 12px; align-items: center; margin-bottom: 24px; }
+    select { padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 14px; background: #fff; }
+    button { padding: 8px 16px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 500; }
+    .btn-primary { background: #0052ff; color: #fff; }
+    .btn-primary:hover { background: #0040cc; }
+    .btn-danger { background: #e5e5e5; color: #d32f2f; }
+    .btn-danger:hover { background: #d32f2f; color: #fff; }
+    .btn-warning { background: #ff9800; color: #fff; }
+    .btn-warning:hover { background: #e68a00; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn-back { background: none; color: #0052ff; padding: 0; font-size: 14px; margin-bottom: 16px; }
+    .btn-back:hover { text-decoration: underline; }
+    .item-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    .item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .item-title { font-size: 16px; font-weight: 600; }
+    .item-meta { display: flex; gap: 8px; align-items: center; }
+    .badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; display: inline-block; }
+    .badge-syncing { background: #e8eaf6; color: #283593; animation: pulse 1.5s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .sync-status { font-size: 12px; color: #666; margin-top: 8px; }
+    .badge-good { background: #e8f5e9; color: #2e7d32; }
+    .badge-login_required { background: #fff3e0; color: #e65100; }
+    .badge-error { background: #ffebee; color: #c62828; }
+    .badge-product { background: #e3f2fd; color: #1565c0; }
+    .account-row { display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid #f0f0f0; font-size: 14px; cursor: pointer; }
+    .account-row:hover { background: #f8f9fa; }
+    .account-row:first-child { border-top: none; }
+    .account-name { flex: 1; color: #0052ff; }
+    .account-type { color: #666; width: 120px; }
+    .account-mask { color: #888; width: 60px; }
+    .account-balance { text-align: right; font-weight: 500; width: 120px; }
+    .empty { text-align: center; padding: 48px; color: #888; }
+    .item-actions { display: flex; gap: 8px; }
+    .loading { text-align: center; padding: 24px; color: #888; }
+    .toast { position: fixed; bottom: 24px; right: 24px; background: #333; color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 14px; display: none; z-index: 100; }
+    .toast.error { background: #d32f2f; }
+    .txn-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .txn-table th { text-align: left; padding: 8px; border-bottom: 2px solid #e0e0e0; font-weight: 600; color: #666; font-size: 11px; text-transform: uppercase; }
+    .txn-table td { padding: 8px; border-bottom: 1px solid #f0f0f0; }
+    .txn-table tr:hover { background: #f8f9fa; }
+    .txn-amount { text-align: right; font-variant-numeric: tabular-nums; }
+    .txn-amount.debit { color: #1a1a1a; }
+    .txn-amount.credit { color: #2e7d32; }
+    .txn-pending { color: #888; font-style: italic; }
+    .account-detail-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 16px; }
+    .account-detail-balance { font-size: 28px; font-weight: 600; }
+    .account-detail-name { font-size: 14px; color: #666; }
+    .txn-controls { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
+    .txn-controls input { padding: 6px 10px; border: 1px solid #d0d0d0; border-radius: 6px; font-size: 13px; }
+    .load-more { text-align: center; padding: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Plaid Bank Sync</h1>
+
+  <div id="main-view">
+    <div class="controls">
+      <select id="product-select">
+        <option value="transactions|investments">Transactions + optional Investments</option>
+        <option value="investments|transactions">Investments + optional Transactions</option>
+        <option value="transactions|">Transactions only</option>
+        <option value="investments|">Investments only</option>
+      </select>
+      <button class="btn-primary" id="connect-btn" onclick="connectAccount()">Connect Account</button>
+    </div>
+
+    <div id="items-container">
+      <div class="loading">Loading...</div>
+    </div>
+  </div>
+
+  <div id="account-view" style="display:none;">
+    <button class="btn-back" onclick="showMainView()">&larr; Back to accounts</button>
+    <div id="account-detail"></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const API = '';
+
+    function showToast(msg, isError) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.className = 'toast' + (isError ? ' error' : '');
+      t.style.display = 'block';
+      setTimeout(() => { t.style.display = 'none'; }, 3000);
+    }
+
+    let refreshInterval = null;
+
+    function showMainView() {
+      document.getElementById('main-view').style.display = '';
+      document.getElementById('account-view').style.display = 'none';
+    }
+
+    function fmtMoney(v) {
+      if (v == null) return 'N/A';
+      return '$' + Math.abs(v).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+
+    // Load and render items
+    async function loadItems() {
+      const container = document.getElementById('items-container');
+      try {
+        const resp = await fetch(API + '/api/items');
+        const items = await resp.json();
+
+        if (!items.length) {
+          container.innerHTML = '<div class="empty">No linked accounts. Click "Connect Account" to get started.</div>';
+          return;
+        }
+
+        container.innerHTML = items.map(item => `
+          <div class="item-card">
+            <div class="item-header">
+              <div>
+                <span class="item-title">${item.institution_name || item.institution_id || 'Unknown Institution'}</span>
+              </div>
+              <div class="item-meta">
+                ${item.products.map(p => `<span class="badge badge-product">${p}</span>`).join('')}
+                ${!item.initial_update_complete ? '<span class="badge badge-syncing">Syncing...</span>' :
+                  !item.historical_update_complete ? '<span class="badge badge-syncing">Loading history...</span>' :
+                  `<span class="badge badge-${item.status}">${item.status === 'login_required' ? 'Re-auth needed' : item.status}</span>`}
+              </div>
+            </div>
+            <div>
+              ${item.accounts.map(a => `
+                <div class="account-row" onclick="showAccount('${a.plaid_account_id}', '${(a.name || 'Account').replace(/'/g, "\\'")}')">
+                  <span class="account-name">${a.name || 'Account'}</span>
+                  <span class="account-type">${a.type || ''}${a.subtype ? '/' + a.subtype : ''}</span>
+                  <span class="account-mask">${a.mask ? '...' + a.mask : ''}</span>
+                  <span class="account-balance">${fmtMoney(a.current_balance)}</span>
+                </div>
+              `).join('')}
+            </div>
+            <div class="item-actions" style="margin-top: 12px;">
+              ${item.status === 'login_required' ? `<button class="btn-warning btn-sm" onclick="relinkItem('${item.item_id}')">Re-link</button>` : ''}
+              <button class="btn-danger btn-sm" onclick="deleteItem('${item.item_id}', '${(item.institution_name || 'this institution').replace(/'/g, "\\'")}')">Delete</button>
+            </div>
+          </div>
+        `).join('');
+        // Auto-refresh while any item is still syncing
+        const anySyncing = items.some(i => !i.initial_update_complete || !i.historical_update_complete);
+        if (anySyncing && !refreshInterval) {
+          refreshInterval = setInterval(loadItems, 5000);
+        } else if (!anySyncing && refreshInterval) {
+          clearInterval(refreshInterval);
+          refreshInterval = null;
+        }
+      } catch (e) {
+        container.innerHTML = '<div class="empty">Failed to load accounts.</div>';
+        console.error(e);
+      }
+    }
+
+    // Show account detail — investments get holdings + inv txns, others get transactions
+    async function showAccount(accountId, accountName) {
+      document.getElementById('main-view').style.display = 'none';
+      document.getElementById('account-view').style.display = '';
+      const detail = document.getElementById('account-detail');
+      detail.innerHTML = '<div class="loading">Loading...</div>';
+
+      try {
+        const acctResp = await fetch(API + `/api/accounts/${accountId}`);
+        const account = await acctResp.json();
+        const isInvestment = account.type === 'investment';
+
+        const headerHtml = `
+          <div class="item-card">
+            <div class="account-detail-header">
+              <div>
+                <h2>${account.name || 'Account'}</h2>
+                <span class="account-detail-name">${account.type || ''}${account.subtype ? ' / ' + account.subtype : ''} ${account.mask ? '...' + account.mask : ''}</span>
+              </div>
+              <div>
+                <div class="account-detail-balance">${fmtMoney(account.current_balance)}</div>
+                ${account.available_balance != null ? `<div class="account-detail-name" style="text-align:right;">${fmtMoney(account.available_balance)} available</div>` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+
+        if (isInvestment) {
+          const [holdingsResp, invTxnResp] = await Promise.all([
+            fetch(API + `/api/investments/holdings?account_id=${accountId}`),
+            fetch(API + `/api/investments/transactions?account_id=${accountId}&limit=100`),
+          ]);
+          const holdings = await holdingsResp.json();
+          const invTxns = await invTxnResp.json();
+
+          // Fetch securities for ticker lookup
+          const secIds = [...new Set(holdings.map(h => h.security_id))];
+          const secMap = {};
+          // Build a map from the holdings data — we'll enrich with securities table
+          for (const h of holdings) {
+            if (!secMap[h.security_id]) secMap[h.security_id] = {};
+          }
+
+          detail.innerHTML = `
+            ${headerHtml}
+            <h3 style="margin: 16px 0 8px;">Holdings</h3>
+            ${holdings.length ? `
+              <table class="txn-table">
+                <thead>
+                  <tr>
+                    <th>Security</th>
+                    <th style="text-align:right;">Quantity</th>
+                    <th style="text-align:right;">Price</th>
+                    <th style="text-align:right;">Value</th>
+                    <th style="text-align:right;">Cost Basis</th>
+                    <th style="text-align:right;">Gain/Loss</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${holdings.map(h => {
+                    const gain = (h.institution_value != null && h.cost_basis != null) ? h.institution_value - h.cost_basis : null;
+                    const gainClass = gain != null ? (gain >= 0 ? 'credit' : 'debit') : '';
+                    const label = h.ticker_symbol || h.security_name || h.security_id.substring(0, 12) + '...';
+                    const sublabel = h.security_name && h.ticker_symbol ? h.security_name : (h.security_type || '');
+                    return `
+                      <tr>
+                        <td><strong>${label}</strong>${sublabel ? `<br><span style="color:#888;font-size:12px;">${sublabel}</span>` : ''}</td>
+                        <td class="txn-amount">${h.quantity != null ? h.quantity.toFixed(4) : 'N/A'}</td>
+                        <td class="txn-amount">${fmtMoney(h.institution_price)}</td>
+                        <td class="txn-amount">${fmtMoney(h.institution_value)}</td>
+                        <td class="txn-amount">${fmtMoney(h.cost_basis)}</td>
+                        <td class="txn-amount ${gainClass}">${gain != null ? (gain >= 0 ? '+' : '') + fmtMoney(Math.abs(gain)) : 'N/A'}</td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            ` : '<div class="empty">No holdings.</div>'}
+
+            <h3 style="margin: 24px 0 8px;">Investment Transactions</h3>
+            ${invTxns.length ? `
+              <table class="txn-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Security</th>
+                    <th>Type</th>
+                    <th style="text-align:right;">Qty</th>
+                    <th style="text-align:right;">Price</th>
+                    <th style="text-align:right;">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${invTxns.map(t => {
+                    const sec = t.ticker_symbol || t.security_name || t.name || '';
+                    return `
+                    <tr>
+                      <td>${t.date}</td>
+                      <td>${sec}</td>
+                      <td>${t.type || ''}${t.subtype && t.subtype !== t.type ? '/' + t.subtype : ''}</td>
+                      <td class="txn-amount">${t.quantity != null ? t.quantity.toFixed(4) : ''}</td>
+                      <td class="txn-amount">${t.price != null ? fmtMoney(t.price) : ''}</td>
+                      <td class="txn-amount ${t.amount < 0 ? 'credit' : 'debit'}">${t.amount != null ? (t.amount < 0 ? '+' : '-') + fmtMoney(t.amount) : ''}</td>
+                    </tr>
+                  `}).join('')}
+                </tbody>
+              </table>
+            ` : '<div class="empty">No investment transactions.</div>'}
+          `;
+        } else {
+          // Regular account — show transactions
+          const txnResp = await fetch(API + `/api/transactions?account_id=${accountId}&limit=100`);
+          const transactions = await txnResp.json();
+
+          detail.innerHTML = `
+            ${headerHtml}
+            <div class="txn-controls">
+              <input type="text" id="txn-search" placeholder="Search transactions..." oninput="filterTransactions('${accountId}')">
+            </div>
+            <div id="txn-list">
+              ${renderTransactions(transactions)}
+            </div>
+            ${transactions.length >= 100 ? `
+              <div class="load-more">
+                <button class="btn-primary btn-sm" onclick="loadMoreTransactions('${accountId}', ${transactions.length})">Load more</button>
+              </div>
+            ` : ''}
+          `;
+        }
+      } catch (e) {
+        detail.innerHTML = '<div class="empty">Failed to load account details.</div>';
+        console.error(e);
+      }
+    }
+
+    function renderTransactions(transactions) {
+      if (!transactions.length) return '<div class="empty">No transactions found.</div>';
+      return `
+        <table class="txn-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Description</th>
+              <th>Category</th>
+              <th style="text-align:right;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${transactions.map(t => {
+              const isCredit = t.amount < 0;
+              let category = '';
+              try {
+                const pfc = JSON.parse(t.personal_finance_category || '{}');
+                category = (pfc.primary || '').toLowerCase().replace(/_/g, ' ');
+              } catch(e) { category = ''; }
+              return `
+                <tr class="${t.pending ? 'txn-pending' : ''}">
+                  <td>${t.date}</td>
+                  <td>${t.merchant_name || t.name || ''}${t.pending ? ' (pending)' : ''}</td>
+                  <td>${category}</td>
+                  <td class="txn-amount ${isCredit ? 'credit' : 'debit'}">${isCredit ? '+' : '-'}${fmtMoney(t.amount)}</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    let filterTimeout;
+    async function filterTransactions(accountId) {
+      clearTimeout(filterTimeout);
+      filterTimeout = setTimeout(async () => {
+        const search = document.getElementById('txn-search').value;
+        const params = new URLSearchParams({ account_id: accountId, limit: '100' });
+        if (search) params.set('search', search);
+        const resp = await fetch(API + `/api/transactions?${params}`);
+        const txns = await resp.json();
+        document.getElementById('txn-list').innerHTML = renderTransactions(txns);
+      }, 300);
+    }
+
+    async function loadMoreTransactions(accountId, currentOffset) {
+      const search = document.getElementById('txn-search').value;
+      const params = new URLSearchParams({ account_id: accountId, limit: '100', offset: currentOffset.toString() });
+      if (search) params.set('search', search);
+      const resp = await fetch(API + `/api/transactions?${params}`);
+      const txns = await resp.json();
+      if (!txns.length) {
+        showToast('No more transactions');
+        return;
+      }
+      const tbody = document.querySelector('#txn-list tbody');
+      if (tbody) {
+        txns.forEach(t => {
+          const isCredit = t.amount < 0;
+          let category = '';
+          try {
+            const pfc = JSON.parse(t.personal_finance_category || '{}');
+            category = (pfc.primary || '').toLowerCase().replace(/_/g, ' ');
+          } catch(e) {}
+          const tr = document.createElement('tr');
+          if (t.pending) tr.className = 'txn-pending';
+          tr.innerHTML = `
+            <td>${t.date}</td>
+            <td>${t.merchant_name || t.name || ''}${t.pending ? ' (pending)' : ''}</td>
+            <td>${category}</td>
+            <td class="txn-amount ${isCredit ? 'credit' : 'debit'}">${isCredit ? '+' : '-'}${fmtMoney(t.amount)}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+      // Update load more button offset
+      const btn = document.querySelector('.load-more button');
+      if (btn) {
+        const newOffset = currentOffset + txns.length;
+        btn.setAttribute('onclick', `loadMoreTransactions('${accountId}', ${newOffset})`);
+        if (txns.length < 100) btn.parentElement.remove();
+      }
+    }
+
+    // Connect a new account
+    async function connectAccount() {
+      const btn = document.getElementById('connect-btn');
+      const [product, optionalProduct] = document.getElementById('product-select').value.split('|');
+      btn.disabled = true;
+      btn.textContent = 'Connecting...';
+
+      try {
+        const body = { product };
+        if (optionalProduct) body.optional_product = optionalProduct;
+
+        const tokenResp = await fetch(API + '/api/link/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!tokenResp.ok) throw new Error('Failed to create link token');
+        const { link_token } = await tokenResp.json();
+
+        localStorage.setItem('link_token', link_token);
+        localStorage.setItem('link_product', product);
+        localStorage.setItem('link_optional_product', optionalProduct || '');
+
+        const handler = Plaid.create({
+          token: link_token,
+          onSuccess: async (publicToken, metadata) => {
+            localStorage.removeItem('link_token');
+            const products = [product];
+            if (optionalProduct) products.push(optionalProduct);
+            await exchangeToken(publicToken, metadata, products);
+          },
+          onExit: (err) => {
+            if (err) console.error('Link exit error:', err);
+            btn.disabled = false;
+            btn.textContent = 'Connect Account';
+          },
+        });
+        handler.open();
+      } catch (e) {
+        showToast('Failed to start Link: ' + e.message, true);
+        btn.disabled = false;
+        btn.textContent = 'Connect Account';
+      }
+    }
+
+    async function exchangeToken(publicToken, metadata, products, force) {
+      const institution_id = metadata.institution.institution_id;
+      const institution_name = metadata.institution.name;
+
+      try {
+        const resp = await fetch(API + '/api/link/exchange', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            public_token: publicToken,
+            institution_id,
+            institution_name,
+            products,
+            force: force || false,
+          }),
+        });
+        if (!resp.ok) throw new Error('Exchange failed');
+        const data = await resp.json();
+
+        if (data.duplicate && !force) {
+          const proceed = confirm(
+            `You already have an account linked at ${data.institution_name || institution_name}. Connect another one anyway?`
+          );
+          if (proceed) {
+            await exchangeToken(publicToken, metadata, products, true);
+          }
+          return;
+        }
+
+        showToast(`Connected ${institution_name} with ${data.accounts.length} accounts`);
+        await loadItems();
+      } catch (e) {
+        showToast('Failed to link account: ' + e.message, true);
+      } finally {
+        const btn = document.getElementById('connect-btn');
+        btn.disabled = false;
+        btn.textContent = 'Connect Account';
+      }
+    }
+
+    async function relinkItem(itemId) {
+      try {
+        const tokenResp = await fetch(API + '/api/link/token/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_id: itemId }),
+        });
+        if (!tokenResp.ok) throw new Error('Failed to create update token');
+        const { link_token } = await tokenResp.json();
+
+        localStorage.setItem('link_token', link_token);
+        localStorage.setItem('relink_item_id', itemId);
+
+        const handler = Plaid.create({
+          token: link_token,
+          onSuccess: async () => {
+            localStorage.removeItem('link_token');
+            localStorage.removeItem('relink_item_id');
+            await fetch(API + `/api/items/${itemId}/status`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: 'good' }),
+            });
+            showToast('Re-linked successfully');
+            await loadItems();
+          },
+          onExit: (err) => {
+            localStorage.removeItem('link_token');
+            localStorage.removeItem('relink_item_id');
+            if (err) showToast('Re-link cancelled', true);
+          },
+        });
+        handler.open();
+      } catch (e) {
+        showToast('Failed to re-link: ' + e.message, true);
+      }
+    }
+
+    async function deleteItem(itemId, name) {
+      if (!confirm(`Remove ${name} and all its data?`)) return;
+
+      try {
+        const resp = await fetch(API + `/api/items/${itemId}`, { method: 'DELETE' });
+        if (!resp.ok) throw new Error('Delete failed');
+        showToast('Removed ' + name);
+        await loadItems();
+      } catch (e) {
+        showToast('Failed to remove: ' + e.message, true);
+      }
+    }
+
+    // OAuth redirect handling
+    window.addEventListener('load', async () => {
+      const params = new URLSearchParams(window.location.search);
+      const oauthStateId = params.get('oauth_state_id');
+
+      if (oauthStateId) {
+        const linkToken = localStorage.getItem('link_token');
+        const relinkItemId = localStorage.getItem('relink_item_id');
+
+        if (linkToken) {
+          const handler = Plaid.create({
+            token: linkToken,
+            receivedRedirectUri: window.location.href,
+            onSuccess: async (publicToken, metadata) => {
+              localStorage.removeItem('link_token');
+              if (relinkItemId) {
+                localStorage.removeItem('relink_item_id');
+                await fetch(API + `/api/items/${relinkItemId}/status`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ status: 'good' }),
+                });
+                showToast('Re-linked successfully');
+              } else {
+                const product = localStorage.getItem('link_product') || 'transactions';
+                const opt = localStorage.getItem('link_optional_product') || '';
+                const products = [product];
+                if (opt) products.push(opt);
+                localStorage.removeItem('link_product');
+                localStorage.removeItem('link_optional_product');
+                await exchangeToken(publicToken, metadata, products);
+              }
+              await loadItems();
+            },
+            onExit: (err) => {
+              localStorage.removeItem('link_token');
+              localStorage.removeItem('relink_item_id');
+              localStorage.removeItem('link_product');
+              localStorage.removeItem('link_optional_product');
+              if (err) showToast('Session expired, please try connecting again', true);
+              loadItems();
+            },
+          });
+          handler.open();
+        } else {
+          showToast('OAuth session expired, please try again', true);
+          loadItems();
+        }
+        window.history.replaceState({}, '', window.location.pathname);
+      } else {
+        loadItems();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -118,6 +118,15 @@ async def sync_transactions(
             error_body = json.loads(e.body) if e.body else {}
             error_code = error_body.get("error_code", "")
 
+            if error_code == "ITEM_LOGIN_REQUIRED":
+                logger.warning(f"Item {item_id} requires re-authentication")
+                await db.execute(
+                    "UPDATE plaid_items SET status = 'login_required', updated_at = datetime('now') WHERE item_id = ?",
+                    (item_id,),
+                )
+                await db.commit()
+                raise
+
             if error_code == "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION":
                 logger.warning(f"Mutation during pagination for {item_id}, restarting from saved cursor")
                 cursor_row = await db.execute(

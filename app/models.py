@@ -41,6 +41,9 @@ class HoldingResponse(BaseModel):
     account_id: str
     item_id: str
     security_id: str
+    ticker_symbol: Optional[str] = None
+    security_name: Optional[str] = None
+    security_type: Optional[str] = None
     institution_price: Optional[float] = None
     institution_price_as_of: Optional[str] = None
     institution_value: Optional[float] = None
@@ -68,6 +71,8 @@ class InvestmentTransactionResponse(BaseModel):
     account_id: str
     item_id: str
     security_id: Optional[str] = None
+    ticker_symbol: Optional[str] = None
+    security_name: Optional[str] = None
     date: str
     name: Optional[str] = None
     quantity: Optional[float] = None
@@ -106,8 +111,48 @@ class ItemResponse(BaseModel):
     item_id: str
     institution_id: Optional[str] = None
     institution_name: Optional[str] = None
+    status: str = "good"
+    products: List[str] = []
+    initial_update_complete: bool = False
+    historical_update_complete: bool = False
     created_at: str
     accounts: List[AccountResponse] = []
+
+
+class LinkTokenRequest(BaseModel):
+    product: str
+    optional_product: Optional[str] = None
+
+
+class LinkTokenResponse(BaseModel):
+    link_token: str
+    expiration: str
+
+
+class ExchangeRequest(BaseModel):
+    public_token: str
+    institution_id: str
+    institution_name: str
+    products: List[str]
+    force: bool = False
+
+
+class ExchangeResponse(BaseModel):
+    item_id: str
+    institution_id: str
+    institution_name: str
+    products: List[str]
+    accounts: List[AccountResponse] = []
+    duplicate: bool = False
+    existing_item_id: Optional[str] = None
+
+
+class UpdateLinkTokenRequest(BaseModel):
+    item_id: str
+
+
+class StatusUpdate(BaseModel):
+    status: str
 
 
 class ErrorResponse(BaseModel):

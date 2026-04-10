@@ -2,7 +2,7 @@
 
 import pytest
 import pytest_asyncio
-from app.database import init_db, run_migrations
+from app.database import init_db, run_migrations, MIGRATIONS
 
 
 @pytest.mark.asyncio
@@ -23,10 +23,10 @@ async def test_schema_creates_all_tables(db):
 @pytest.mark.asyncio
 async def test_schema_version_tracked(db):
     """Migration version is recorded."""
-    cursor = await db.execute("SELECT version FROM schema_version")
+    cursor = await db.execute("SELECT MAX(version) FROM schema_version")
     row = await cursor.fetchone()
     assert row is not None
-    assert row[0] == 1
+    assert row[0] == max(MIGRATIONS.keys())
 
 
 @pytest.mark.asyncio
@@ -51,4 +51,4 @@ async def test_migrations_idempotent(db):
     await run_migrations(db)
     cursor = await db.execute("SELECT COUNT(*) FROM schema_version")
     row = await cursor.fetchone()
-    assert row[0] == 1
+    assert row[0] == len(MIGRATIONS)

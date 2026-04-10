@@ -1,6 +1,6 @@
 # Plaid Bank Sync
 
-Backend-only Python application that connects to multiple bank accounts via Plaid, syncs transaction and investment data, and persists everything to a local SQLite database. Exposes a FastAPI REST API for triggering syncs and querying data, plus a CLI for account linking and manual operations.
+Python application that connects to multiple bank accounts via Plaid, syncs transaction and investment data, and persists everything to a local SQLite database. Includes a web UI for managing linked accounts via Plaid Link, a FastAPI REST API for triggering syncs and querying data, and a CLI for sandbox operations.
 
 ## Setup
 
@@ -30,21 +30,26 @@ cp .env.example .env
 | `DATABASE_URL` | No | `sqlite+aiosqlite:///./plaid_data.db` | SQLite database path |
 | `SYNC_INTERVAL_HOURS` | No | `6` | Hours between automatic syncs |
 | `LOG_LEVEL` | No | `INFO` | Logging level |
+| `PLAID_REDIRECT_URI` | No | — | OAuth redirect URI (required for OAuth-based institutions in production) |
 
-### 3. Link a bank account (sandbox)
-
-```bash
-python cli.py link                              # Default: First Platypus Bank (ins_109508)
-python cli.py link --institution ins_109508     # Specify institution
-```
-
-### 4. Start the server
+### 3. Start the server
 
 ```bash
 uvicorn app.main:app --port 8000 --reload
 ```
 
-The server will run an initial sync 10 seconds after startup, then every `SYNC_INTERVAL_HOURS`.
+Open `http://localhost:8000` in your browser to access the web UI. The server runs an initial sync 10 seconds after startup, then every `SYNC_INTERVAL_HOURS`.
+
+### 4. Connect a bank account
+
+**Via the web UI** (recommended): Click "Connect Account", select products, and complete the Plaid Link flow in your browser.
+
+**Via the CLI** (sandbox only):
+
+```bash
+python cli.py link                              # Default: First Platypus Bank (ins_109508)
+python cli.py link --institution ins_109508     # Specify institution
+```
 
 ## CLI Usage
 
@@ -56,15 +61,36 @@ python cli.py sync                    # Sync all linked items
 python cli.py sync --item ITEM_ID     # Sync a specific item
 ```
 
+## Web UI
+
+The frontend is a single HTML page served at `/` with no build step. It provides:
+
+- **Item list** showing connected institutions with status badges, product tags, and nested accounts with balances
+- **Connect Account** button with product selector (transactions, investments, or both) that launches Plaid Link
+- **Delete** button per item (removes from Plaid and local DB)
+- **Re-link** button for items needing re-authentication (when Plaid reports `ITEM_LOGIN_REQUIRED`)
+- **Duplicate detection** warns if you try to connect an institution that's already linked
+- **OAuth redirect handling** for institutions that use OAuth flows
+
 ## API Reference
 
-### Accounts
+### Items & Accounts
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `GET` | `/api/items` | List all linked items with nested accounts, status, and products |
 | `GET` | `/api/accounts` | List all linked accounts with balances |
 | `GET` | `/api/accounts/{account_id}` | Get single account detail |
 | `DELETE` | `/api/items/{item_id}` | Unlink item and remove all associated data |
+| `PATCH` | `/api/items/{item_id}/status` | Update item status (`good`, `login_required`, `error`) |
+
+### Plaid Link
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/link/token` | Create a Plaid Link token (body: `{"products": ["transactions", "investments"]}`) |
+| `POST` | `/api/link/exchange` | Exchange public token, store item/accounts, trigger initial sync |
+| `POST` | `/api/link/token/update` | Create a Link token in update mode for re-authentication |
 
 ### Transactions
 
@@ -115,6 +141,9 @@ All tests use mocked Plaid responses — no sandbox API calls are made during te
 - **Investment transactions** use date-windowed incremental syncs with 7-day overlap for safety
 - **Scheduler** runs via APScheduler with per-item error isolation (one item failing doesn't block others)
 - **Database** uses SQLite with WAL mode and foreign keys enabled
+- **Product-aware sync** only syncs the products each item was linked with (transactions, investments, or both)
+- **Item health tracking** detects `ITEM_LOGIN_REQUIRED` during sync and marks items for re-authentication
+- **Duplicate detection** warns before linking the same institution twice
 
 ## Future Considerations
 

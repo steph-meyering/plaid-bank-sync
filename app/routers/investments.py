@@ -90,25 +90,25 @@ async def sync_item_investments(item_id: str, request: Request):
 async def list_holdings(request: Request, account_id: Optional[str] = None):
     """List all investment holdings, optionally filtered by account."""
     db = request.app.state.db
+    query = (
+        "SELECT h.account_id, h.item_id, h.security_id, h.institution_price, "
+        "h.institution_price_as_of, h.institution_value, h.cost_basis, h.quantity, h.currency_code, "
+        "s.ticker_symbol, s.name, s.type "
+        "FROM investment_holdings h "
+        "LEFT JOIN securities s ON h.security_id = s.security_id"
+    )
     if account_id:
-        cursor = await db.execute(
-            "SELECT account_id, item_id, security_id, institution_price, "
-            "institution_price_as_of, institution_value, cost_basis, quantity, currency_code "
-            "FROM investment_holdings WHERE account_id = ?",
-            (account_id,),
-        )
+        query += " WHERE h.account_id = ?"
+        cursor = await db.execute(query, (account_id,))
     else:
-        cursor = await db.execute(
-            "SELECT account_id, item_id, security_id, institution_price, "
-            "institution_price_as_of, institution_value, cost_basis, quantity, currency_code "
-            "FROM investment_holdings"
-        )
+        cursor = await db.execute(query)
     rows = await cursor.fetchall()
     return [
         HoldingResponse(
             account_id=r[0], item_id=r[1], security_id=r[2], institution_price=r[3],
             institution_price_as_of=r[4], institution_value=r[5], cost_basis=r[6],
             quantity=r[7], currency_code=r[8],
+            ticker_symbol=r[9], security_name=r[10], security_type=r[11],
         )
         for r in rows
     ]
@@ -129,20 +129,23 @@ async def list_investment_transactions(
     params = []
 
     if account_id:
-        conditions.append("account_id = ?")
+        conditions.append("t.account_id = ?")
         params.append(account_id)
     if start_date:
-        conditions.append("date >= ?")
+        conditions.append("t.date >= ?")
         params.append(start_date)
     if end_date:
-        conditions.append("date <= ?")
+        conditions.append("t.date <= ?")
         params.append(end_date)
 
     where = " WHERE " + " AND ".join(conditions) if conditions else ""
     query = (
-        f"SELECT investment_transaction_id, account_id, item_id, security_id, date, "
-        f"name, quantity, amount, price, fees, type, subtype, currency_code "
-        f"FROM investment_transactions{where} ORDER BY date DESC LIMIT ? OFFSET ?"
+        f"SELECT t.investment_transaction_id, t.account_id, t.item_id, t.security_id, t.date, "
+        f"t.name, t.quantity, t.amount, t.price, t.fees, t.type, t.subtype, t.currency_code, "
+        f"s.ticker_symbol, s.name "
+        f"FROM investment_transactions t "
+        f"LEFT JOIN securities s ON t.security_id = s.security_id"
+        f"{where} ORDER BY t.date DESC LIMIT ? OFFSET ?"
     )
     params.extend([limit, offset])
 
@@ -154,6 +157,7 @@ async def list_investment_transactions(
             security_id=r[3], date=r[4], name=r[5], quantity=r[6],
             amount=r[7], price=r[8], fees=r[9], type=r[10],
             subtype=r[11], currency_code=r[12],
+            ticker_symbol=r[13], security_name=r[14],
         )
         for r in rows
     ]

@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from plaid.api import plaid_api
 from plaid.model.investments_holdings_get_request import InvestmentsHoldingsGetRequest
 from plaid.model.investments_transactions_get_request import InvestmentsTransactionsGetRequest
+from plaid.exceptions import ApiException
 import aiosqlite
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,18 @@ async def sync_holdings(
 ) -> dict:
     """Sync investment holdings for an item. Full snapshot replace."""
     request = InvestmentsHoldingsGetRequest(access_token=access_token)
-    response = client.investments_holdings_get(request)
+    try:
+        response = client.investments_holdings_get(request)
+    except ApiException as e:
+        error_body = json.loads(e.body) if e.body else {}
+        if error_body.get("error_code") == "ITEM_LOGIN_REQUIRED":
+            logger.warning(f"Item {item_id} requires re-authentication")
+            await db.execute(
+                "UPDATE plaid_items SET status = 'login_required', updated_at = datetime('now') WHERE item_id = ?",
+                (item_id,),
+            )
+            await db.commit()
+        raise
 
     # Upsert securities
     await _upsert_securities(db, response.securities)
@@ -141,7 +153,18 @@ async def sync_investment_transactions(
             end_date=end_date,
             options={"offset": offset, "count": 500},
         )
-        response = client.investments_transactions_get(request)
+        try:
+            response = client.investments_transactions_get(request)
+        except ApiException as e:
+            error_body = json.loads(e.body) if e.body else {}
+            if error_body.get("error_code") == "ITEM_LOGIN_REQUIRED":
+                logger.warning(f"Item {item_id} requires re-authentication")
+                await db.execute(
+                    "UPDATE plaid_items SET status = 'login_required', updated_at = datetime('now') WHERE item_id = ?",
+                    (item_id,),
+                )
+                await db.commit()
+            raise
         total = response.total_investment_transactions
 
         # Upsert securities
